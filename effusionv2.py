@@ -4,7 +4,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import numpy as np
-from itertools import product
 
 #---------------------Initalising Parameters-----------------------------------
 
@@ -14,22 +13,22 @@ W, H = 10, 10 # dimensions of the box, width x height
 
 # position of the hole/apperture 
 y_pos = H / 2     
-hole_height = 1.0         
+hole_height = 0.5         
 x_pos = W                
 
 # general constants are set to be zero
-T = 100.0  # temperature
+T = 500000.0  # temperature
 m = 1.0  # mass                
 k = 1.0  # boltzmann constant              
 v0 = np.sqrt(k * T / m) # max velocity
 
 # radius of each particle
-radius = 0.1 
+radius = 0.15
 
 # track the time, timestep and total steps taken
 current_time = 0.0
-dt = 0.0001
-steps = 400
+dt = 0.00001
+steps = 10
 
 # track the escaped particles, including the time at which they escape and
 # the total number of escaped particles
@@ -37,9 +36,9 @@ escaped = np.zeros(N, dtype=bool)
 escape_times = []
 escape_count = 0
 
-#---------------------Defining Ideal Gas Class-------------------------------
+#---------------------Defining Lennard Jones Gas Class-------------------------------
 
-class IdealGas:
+class LJ_Gas:
 
     def __init__(self, N, m, radius, W, H, v0, dt, steps):
 
@@ -76,18 +75,27 @@ class IdealGas:
         # advance the position through the Verlet algorithm and Lennard Jones force/potential
         r_next = self.r + self.v*self.dt + (force/2*self.m)*(self.dt)**2
         #check for collisions with the walls
-        # Left wall
-        self.v[self.r[:, 0] < self.radius, 0] *= -1
-        # Bottom wall
-        self.v[self.r[:, 1] < self.radius, 1] *= -1
-        # Top wall
-        self.v[self.r[:, 1] > self.H - self.radius, 1] *= -1
-        # Right wall — reflect only if outside the slit
-        right_wall_hit = (self.r[:, 0] > self.W - self.radius) & (
-        (self.r[:, 1] < y_pos - hole_height / 2) | (self.r[:, 1] > y_pos + hole_height / 2)
-        )
-        self.v[right_wall_hit, 0] *= -1
+        # left wall
+        mask_left = self.r[:, 0] < self.radius
+        self.v[mask_left, 0] *= -1
+        self.r[mask_left, 0] = self.radius
 
+        # bottom wall
+        mask_bottom = self.r[:, 1] < self.radius
+        self.v[mask_bottom, 1] *= -1
+        self.r[mask_bottom, 1] = self.radius
+
+        # top wall
+        mask_top = self.r[:, 1] > self.H - self.radius
+        self.v[mask_top, 1] *= -1
+        self.r[mask_top, 1] = self.H - self.radius
+
+        # right wall — only reflect if NOT in slit
+        mask_right = (self.r[:, 0] > self.W - self.radius) & (
+            (self.r[:, 1] < y_pos - hole_height / 2) | (self.r[:, 1] > y_pos + hole_height / 2)
+        )
+        self.v[mask_right, 0] *= -1
+        self.r[mask_right, 0] = self.W - self.radius
 
         #check for collisions between particles
         n_particles = len(self.r)
@@ -101,15 +109,19 @@ class IdealGas:
                     self.v[j] = self.v[j] + rdiff.dot(vdiff)/rdiff.dot(rdiff)*rdiff #update velocity of particle j
 
     def check_escaped(self, escaped_mask, escape_times, escape_count, current_time):
-        # Check for escape condition (particles past the right wall in the hole range and not yet escaped)
+        """
+        Remove particles that escape through the right wall slit.
+        Update escape count and times. Returns updated mask and lists.
+        """
+
+        # Escape condition: particle crosses right boundary AND is in slit range AND not already escaped
         escape_condition = (
-            (self.r[:, 0] > self.W) &  # beyond right wall
+            (self.r[:, 0] > self.W) &
             (self.r[:, 1] > y_pos - hole_height / 2) &
             (self.r[:, 1] < y_pos + hole_height / 2) &
             (~escaped_mask)
         )
 
-        # Determine which particles escaped
         newly_escaped = np.sum(escape_condition)
         escape_count += newly_escaped
         escape_times.extend([current_time] * newly_escaped)
@@ -118,8 +130,6 @@ class IdealGas:
         keep_mask = ~escape_condition
         self.r = self.r[keep_mask]
         self.v = self.v[keep_mask]
-
-        # Update the escaped mask (remove escaped entries to stay aligned with r and v)
         escaped_mask = escaped_mask[keep_mask]
 
         return escaped_mask, escape_times, escape_count
@@ -134,10 +144,10 @@ class IdealGas:
 
 #---------------------Creating the animation------------------------------------------
 
-gas = IdealGas(N, m, radius, W, H, v0, dt, steps)    
+gas = LJ_Gas(N, m, radius, W, H, v0, dt, steps)    
 
 fig, ax = plt.subplots()
-scat = ax.scatter(gas.r[:, 0], gas.r[:, 1], s=10)
+scat = ax.scatter(gas.r[:, 0], gas.r[:, 1], s=5)
 time_text = ax.text(0.02, 1.02, 'Time: '+str(current_time), transform=ax.transAxes)
 escape_text = ax.text(0.02, 1.10, 'Number of escaped particles: '+str(escape_count), transform=ax.transAxes)
 ax.set_xlim(0, gas.W)
